@@ -83,46 +83,10 @@ st.set_page_config(
 # --- Load Model and Encoder ---
 @st.cache_resource # Cache the model loading for better performance
 def load_artifacts():
-    # First try to load the pre-trained model
-    try:
-        model_pipeline = joblib.load('best_income_prediction_pipeline.joblib')
-        income_label_encoder = joblib.load('income_label_encoder.joblib')
-        
-        # Reload and clean data to get options and a consistent test set for evaluations
-        data_orig = pd.read_csv(r"adult 3.csv")
-        data_orig.replace({'?': 'Others'}, inplace=True)
-        data_orig = data_orig[~data_orig['workclass'].isin(['Without-pay', 'Never-worked'])]
-        data_orig = data_orig[~data_orig['education'].isin(['5th-6th', '1st-4th', 'Preschool'])]
-        data_orig.drop(columns=['education'], inplace=True)
-        data_orig = data_orig[(data_orig['age'] >= 17) & (data_orig['age'] <= 75)]
-
-        X_eval = data_orig.drop(columns=['income'])
-        y_eval_encoded = income_label_encoder.transform(data_orig['income']) # Encode using the loaded encoder
-
-        _, X_test_for_eval, _, y_test_for_eval = train_test_split(
-            X_eval, y_eval_encoded, test_size=0.2, random_state=42, stratify=y_eval_encoded
-        )
-        
-        # Predict on the consistent test set for metrics display
-        y_pred_eval = model_pipeline.predict(X_test_for_eval)
-        y_proba_eval = model_pipeline.predict_proba(X_test_for_eval)[:, 1]
-
-        # Calculate metrics for display
-        eval_accuracy = accuracy_score(y_test_for_eval, y_pred_eval)
-        eval_roc_auc = roc_auc_score(y_test_for_eval, y_proba_eval)
-        eval_conf_matrix = confusion_matrix(y_test_for_eval, y_pred_eval)
-        eval_classification_report = classification_report(y_test_for_eval, y_pred_eval, 
-                                                            target_names=income_label_encoder.classes_, output_dict=True)
-
-        return (model_pipeline, income_label_encoder, data_orig, X_test_for_eval, y_test_for_eval, 
-                y_pred_eval, y_proba_eval, eval_accuracy, eval_roc_auc, eval_conf_matrix, eval_classification_report)
-    
-    except (FileNotFoundError, ModuleNotFoundError, Exception) as e:
-        st.warning(f"Could not load pre-trained model: {str(e)}")
-        st.info("Creating a new model from scratch. This may take a moment...")
-        
-        # Use fallback function to create model from scratch
-        return create_model_from_scratch()
+    # Due to Python 3.13 compatibility issues with pre-trained models,
+    # we'll create a fresh model to ensure compatibility
+    st.info("Training model with current environment for compatibility...")
+    return create_model_from_scratch()
 
 model_pipeline, income_label_encoder, data_orig, X_test_for_eval, y_test_for_eval, \
 y_pred_eval, y_proba_eval, eval_accuracy, eval_roc_auc, eval_conf_matrix, eval_classification_report = load_artifacts()
