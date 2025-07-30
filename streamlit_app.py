@@ -5,10 +5,72 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler, OneHotEncoder
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score, accuracy_score, classification_report
 import warnings
 
 warnings.filterwarnings('ignore')
+
+# Fallback function to create model from scratch
+def create_model_from_scratch():
+    """Create and train a new model if the joblib files fail to load"""
+    try:
+        # Load and preprocess data
+        data = pd.read_csv(r"adult 3.csv")
+        data.replace({'?': 'Others'}, inplace=True)
+        data = data[~data['workclass'].isin(['Without-pay', 'Never-worked'])]
+        data = data[~data['education'].isin(['5th-6th', '1st-4th', 'Preschool'])]
+        data.drop(columns=['education'], inplace=True)
+        data = data[(data['age'] >= 17) & (data['age'] <= 75)]
+        
+        # Prepare features and target
+        X = data.drop(columns=['income'])
+        y = data['income']
+        
+        # Create label encoder
+        label_encoder = LabelEncoder()
+        y_encoded = label_encoder.fit_transform(y)
+        
+        # Define categorical and numerical columns
+        categorical_features = ['workclass', 'marital-status', 'occupation', 'relationship', 'race', 'gender', 'native-country']
+        numerical_features = ['age', 'fnlwgt', 'educational-num', 'capital-gain', 'capital-loss', 'hours-per-week']
+        
+        # Create preprocessing pipeline
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ('num', StandardScaler(), numerical_features),
+                ('cat', OneHotEncoder(drop='first', handle_unknown='ignore'), categorical_features)
+            ])
+        
+        # Create pipeline with model
+        pipeline = Pipeline([
+            ('preprocessor', preprocessor),
+            ('classifier', RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced'))
+        ])
+        
+        # Split data and train
+        X_train, X_test, y_train, y_test = train_test_split(X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded)
+        pipeline.fit(X_train, y_train)
+        
+        # Make predictions for evaluation
+        y_pred = pipeline.predict(X_test)
+        y_proba = pipeline.predict_proba(X_test)[:, 1]
+        
+        # Calculate metrics
+        accuracy = accuracy_score(y_test, y_pred)
+        roc_auc = roc_auc_score(y_test, y_proba)
+        conf_matrix = confusion_matrix(y_test, y_pred)
+        class_report = classification_report(y_test, y_pred, target_names=label_encoder.classes_, output_dict=True)
+        
+        return (pipeline, label_encoder, data, X_test, y_test, y_pred, y_proba, 
+                accuracy, roc_auc, conf_matrix, class_report)
+    
+    except Exception as e:
+        st.error(f"Error creating model from scratch: {str(e)}")
+        st.stop()
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -21,6 +83,7 @@ st.set_page_config(
 # --- Load Model and Encoder ---
 @st.cache_resource # Cache the model loading for better performance
 def load_artifacts():
+    # First try to load the pre-trained model
     try:
         model_pipeline = joblib.load('best_income_prediction_pipeline.joblib')
         income_label_encoder = joblib.load('income_label_encoder.joblib')
@@ -53,9 +116,13 @@ def load_artifacts():
 
         return (model_pipeline, income_label_encoder, data_orig, X_test_for_eval, y_test_for_eval, 
                 y_pred_eval, y_proba_eval, eval_accuracy, eval_roc_auc, eval_conf_matrix, eval_classification_report)
-    except FileNotFoundError:
-        st.error("Error: Model or Label Encoder files not found. Please ensure 'best_income_prediction_pipeline.joblib', 'income_label_encoder.joblib', and 'adult 3.csv' are in the same directory.")
-        st.stop() # Stop the app if files are missing
+    
+    except (FileNotFoundError, ModuleNotFoundError, Exception) as e:
+        st.warning(f"Could not load pre-trained model: {str(e)}")
+        st.info("Creating a new model from scratch. This may take a moment...")
+        
+        # Use fallback function to create model from scratch
+        return create_model_from_scratch()
 
 model_pipeline, income_label_encoder, data_orig, X_test_for_eval, y_test_for_eval, \
 y_pred_eval, y_proba_eval, eval_accuracy, eval_roc_auc, eval_conf_matrix, eval_classification_report = load_artifacts()
